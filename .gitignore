@@ -19,3 +19,6 @@ build/
 
 .vscode/
 .idea/
+
+# Tickets are a local working artifact, not part of the published repo.
+tickets/
