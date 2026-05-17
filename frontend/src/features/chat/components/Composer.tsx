@@ -1,4 +1,4 @@
-import { useState, SubmitEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 interface ComposerProps {
   /** Called with the trimmed message text when the user sends. */
@@ -12,12 +12,16 @@ interface ComposerProps {
 export function Composer({ onSend }: ComposerProps) {
   const [text, setText] = useState("");
 
-  function handleSubmit(event: SubmitEvent) {
+  function updateText(nextText: string) {
+    setText(nextText);
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = text.trim();
     if (!trimmed) return;
     onSend(trimmed);
-    setText("");
+    updateText("");
   }
 
   return (
@@ -26,7 +30,7 @@ export function Composer({ onSend }: ComposerProps) {
         <input
           type="text"
           value={text}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => updateText(event.target.value)}
           autoComplete="off"
           placeholder="Book me a train to Manchester tomorrow morning…"
           className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"

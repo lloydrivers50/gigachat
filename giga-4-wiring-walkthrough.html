@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GIGA-4 — Wiring the chat to the backend</title>
+<style>
+  :root {
+    --bg: #0d0e16;
+    --panel: #161827;
+    --panel-2: #1d2035;
+    --ink: #e7e8f0;
+    --ink-dim: #9a9cb8;
+    --line: #2c2f48;
+    --browser: #6ea8ff;
+    --proxy: #f6b657;
+    --backend: #5cd3a4;
+    --user: #6ea8ff;
+    --assistant: #c9cce0;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); }
+  body {
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 32px 24px 64px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  code, pre, .mono { font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+
+  /* ---- header ---- */
+  header { margin-bottom: 26px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--proxy); font-weight: 600; margin-bottom: 8px;
+  }
+  h1 {
+    font-size: 30px; line-height: 1.2; font-weight: 700;
+    background: linear-gradient(100deg, var(--browser), #b89bff 55%, var(--backend));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--ink-dim); margin-top: 8px; max-width: 760px; }
+
+  /* ---- controls ---- */
+  .controls {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin: 22px 0 18px;
+  }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer;
+    background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 16px; transition: background .15s, transform .05s;
+  }
+  button:hover { background: #2a2e4c; }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .38; cursor: default; }
+  button.primary { background: linear-gradient(120deg, #5a78d6, #7d5fd0); border-color: transparent; }
+  button.primary:hover { filter: brightness(1.12); }
+  .counter { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+  .dots { display: flex; gap: 7px; margin-left: auto; }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--line); cursor: pointer; transition: background .2s, transform .2s;
+  }
+  .dot.done { background: #44496f; }
+  .dot.active { background: var(--browser); transform: scale(1.35); }
+
+  /* ---- stage ---- */
+  .stage {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1.35fr 0.9fr 1.1fr;
+    gap: 40px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 30px 34px;
+    min-height: 360px;
+    align-items: center;
+  }
+  svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+  .zone { position: relative; z-index: 2; }
+
+  .zone-label {
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    font-weight: 700; margin-bottom: 10px; display: flex; gap: 7px; align-items: center;
+  }
+  .zone-box {
+    border: 1px dashed var(--line); border-radius: 12px; padding: 16px 16px 18px;
+    display: flex; flex-direction: column; gap: 22px;
+  }
+  .zone-box.browser { border-color: rgba(110,168,255,.35); }
+  .zone-box.backend { border-color: rgba(92,211,164,.35); }
+  .pill {
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    background: var(--panel-2); color: var(--ink-dim); letter-spacing: .03em;
+  }
+
+  .node {
+    position: relative; z-index: 2;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    padding: 13px 15px;
+    transition: border-color .25s, box-shadow .25s, transform .25s, background .25s;
+  }
+  .node .n-title { font-weight: 700; font-size: 14px; }
+  .node .n-desc { color: var(--ink-dim); font-size: 12px; margin-top: 3px; }
+  .node.active {
+    transform: translateY(-2px);
+  }
+  .node.active.acc-browser { border-color: var(--browser); box-shadow: 0 0 0 1px var(--browser), 0 8px 26px -10px var(--browser); }
+  .node.active.acc-proxy   { border-color: var(--proxy);   box-shadow: 0 0 0 1px var(--proxy),   0 8px 26px -10px var(--proxy); }
+  .node.active.acc-backend { border-color: var(--backend); box-shadow: 0 0 0 1px var(--backend), 0 8px 26px -10px var(--backend); }
+
+  /* mini chat inside ChatPanel */
+  .mini-chat { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .bubble {
+    font-size: 11px; padding: 5px 9px; border-radius: 9px; max-width: 78%;
+    opacity: 0; transform: translateY(4px); transition: opacity .3s, transform .3s;
+  }
+  .bubble.show { opacity: 1; transform: none; }
+  .bubble.user { align-self: flex-end; background: #2f4a86; color: #dfe7ff; border-bottom-right-radius: 2px; }
+  .bubble.assistant { align-self: flex-start; background: #2b2e44; color: var(--assistant); border-bottom-left-radius: 2px; }
+  .typing {
+    align-self: flex-start; display: none; gap: 3px; padding: 7px 9px;
+    background: #2b2e44; border-radius: 9px; border-bottom-left-radius: 2px;
+  }
+  .typing.show { display: flex; }
+  .typing span {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--ink-dim);
+    animation: blink 1.2s infinite;
+  }
+  .typing span:nth-child(2) { animation-delay: .2s; }
+  .typing span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,80%,100% { opacity:.25; } 40% { opacity:1; } }
+
+  /* the travelling packet */
+  .packet {
+    position: absolute; z-index: 6;
+    display: flex; align-items: center; gap: 6px;
+    background: #fff; color: #111322;
+    font-size: 11px; font-weight: 700;
+    padding: 5px 10px; border-radius: 999px;
+    box-shadow: 0 6px 20px -4px rgba(0,0,0,.6), 0 0 0 4px rgba(255,255,255,.12);
+    transform: translate(-50%, -50%);
+    transition: left .85s cubic-bezier(.55,.05,.3,1), top .85s cubic-bezier(.55,.05,.3,1), opacity .3s;
+    pointer-events: none;
+  }
+  .packet::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--proxy);
+  }
+  .packet.hidden { opacity: 0; }
+
+  /* ---- info row ---- */
+  .info {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px 22px;
+  }
+  .card h3 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--proxy); margin-bottom: 10px; }
+  .step-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .step-text { color: var(--ink); }
+  .step-text b { color: #fff; font-weight: 700; }
+  pre {
+    background: #0b0c14; border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.6;
+    color: #cdd2ee; white-space: pre-wrap;
+  }
+  pre .cmt { color: #6b7099; }
+
+  /* ---- footer callouts ---- */
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+  .note {
+    border-radius: var(--radius); padding: 18px 20px; border: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .note .tag {
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    margin-bottom: 8px; display: inline-block;
+  }
+  .note.warn .tag { color: #f6896b; }
+  .note.defer .tag { color: var(--proxy); }
+  .note p { color: var(--ink-dim); font-size: 13px; }
+  .note p b { color: var(--ink); }
+
+  .layers {
+    margin-top: 18px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px 22px;
+  }
+  .layers h3 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--proxy); margin-bottom: 12px; }
+  .layer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .layer {
+    border-radius: 10px; padding: 13px 15px; border: 1px solid var(--line); background: var(--panel-2);
+  }
+  .layer .lt { font-weight: 700; font-size: 13px; }
+  .layer .lt .mono { color: var(--browser); }
+  .layer .ld { color: var(--ink-dim); font-size: 12.5px; margin-top: 4px; }
+
+  .hint { color: var(--ink-dim); font-size: 12px; margin-top: 14px; text-align: center; }
+
+  @media (max-width: 760px) {
+    .stage { grid-template-columns: 1fr; gap: 60px; }
+    .info, .notes, .layer-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">GIGA-4 · mental model</div>
+  <h1>One message, walked through the whole system</h1>
+  <p class="sub">Before this ticket the chat is a closed loop: typing appends a bubble to React state and
+  nothing answers. GIGA-4 connects that loop to the backend. Step through below — one message travels
+  out, gets an echo, and comes back.</p>
+</header>
+
+<div class="controls">
+  <button id="prev">‹ Back</button>
+  <button id="play" class="primary">▶ Play</button>
+  <button id="next">Next ›</button>
+  <span class="counter"><span id="cur">0</span> / <span id="total">9</span></span>
+  <div class="dots" id="dots"></div>
+</div>
+
+<div class="stage" id="stage">
+  <svg class="wires" id="wires"></svg>
+
+  <!-- BROWSER ZONE -->
+  <div class="zone">
+    <div class="zone-label" style="color:var(--browser)">
+      Browser <span class="pill">origin :5173</span>
+    </div>
+    <div class="zone-box browser">
+      <div class="node acc-browser" id="chatpanel">
+        <div class="n-title">ChatPanel</div>
+        <div class="n-desc">the UI — input box + bubbles</div>
+        <div class="mini-chat">
+          <div class="bubble user" id="ub">book me a cab</div>
+          <div class="typing" id="typing"><span></span><span></span><span></span></div>
+          <div class="bubble assistant" id="ab">Echo: "book me a cab"</div>
+        </div>
+      </div>
+      <div class="node acc-browser" id="hook">
+        <div class="n-title">useMessages <span class="pill">hook</span></div>
+        <div class="n-desc">owns the conversation array + isTyping</div>
+      </div>
+      <div class="node acc-browser" id="api">
+        <div class="n-title">api.ts <span class="pill">network</span></div>
+        <div class="n-desc">owns the fetch — imports no React</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROXY ZONE -->
+  <div class="zone">
+    <div class="zone-label" style="color:var(--proxy)">
+      Vite dev server <span class="pill">:5173</span>
+    </div>
+    <div class="zone-box">
+      <div class="node acc-proxy" id="proxy">
+        <div class="n-title">server.proxy</div>
+        <div class="n-desc">forwards <span class="mono">/messages</span> → :3000, server-side. No CORS.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BACKEND ZONE -->
+  <div class="zone">
+    <div class="zone-label" style="color:var(--backend)">
+      Backend <span class="pill">:3000</span>
+    </div>
+    <div class="zone-box backend">
+      <div class="node acc-backend" id="route">
+        <div class="n-title">POST /messages</div>
+        <div class="n-desc">Express route — receives the request</div>
+      </div>
+      <div class="node acc-backend" id="store">
+        <div class="n-title">in-memory store</div>
+        <div class="n-desc">builds the echo, mints the assistant id</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="packet hidden" id="packet"><span id="packet-label">text</span></div>
+</div>
+
+<div class="info">
+  <div class="card">
+    <h3>What happens here</h3>
+    <div class="step-title" id="step-title">The closed loop today</div>
+    <div class="step-text" id="step-text"></div>
+  </div>
+  <div class="card">
+    <h3>In code</h3>
+    <pre id="step-code"></pre>
+  </div>
+</div>
+
+<div class="layers">
+  <h3>The discipline this ticket installs</h3>
+  <div class="layer-grid">
+    <div class="layer">
+      <div class="lt"><span class="mono">useMessages</span> — the hook</div>
+      <div class="ld">Owns state: the conversation array and isTyping. Decides <i>when</i> things
+      happen. Never writes <span class="mono">fetch</span>.</div>
+    </div>
+    <div class="layer">
+      <div class="lt"><span class="mono">api.ts</span> — the network</div>
+      <div class="ld">Owns the HTTP call. Decides <i>how</i> a message reaches the server. Never
+      touches React. When SSE replaces fetch later, only this file moves.</div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <div class="note warn">
+    <span class="tag">⚠ The trap — don't get stuck</span>
+    <p>If the <span class="mono" style="color:#fff">fetch</span> throws, <b>isTyping must still go
+    back to false</b> — put it in a <span class="mono" style="color:#fff">catch</span> (or
+    <span class="mono" style="color:#fff">finally</span>). Skip this and a failed request leaves the
+    typing dots spinning forever. A <span class="mono" style="color:#fff">console.error</span> is
+    enough for now; a visible error message is a later ticket.</p>
+  </div>
+  <div class="note defer">
+    <span class="tag">◷ Noted &amp; deferred</span>
+    <p>The frontend and backend currently mint <b>different ids for the same user message</b>. Who
+    should own that id? Real question — but out of scope for GIGA-4. Leave it; it lives in
+    design-notes.md. The <i>assistant</i> id is settled: the backend owns it (step 7).</p>
+  </div>
+</div>
+
+<p class="hint">Tip: ← / → arrow keys also step through.</p>
+
+<script>
+const steps = [
+  {
+    title: "The closed loop today",
+    text: "Right now <b>ChatPanel</b> calls <span class='mono'>addMessage</span> on the "
+        + "<b>useMessages</b> hook, the hook appends your bubble to React state — and that is the "
+        + "whole story. Nothing replies. GIGA-4 adds <b>api.ts</b>, the <b>Vite proxy</b>, and the "
+        + "trip out to the <b>backend</b>. Press Next to send one message all the way through.",
+    code: "// before GIGA-4: addMessage just appends and stops\nfunction addMessage(text) {\n  setMessages(prev => [...prev, makeUserMessage(text)]);\n  // ...and nothing answers\n}",
+    active: [], wires: [], packet: null, label: ""
+  },
+  {
+    title: "1 · You hit send",
+    text: "You type into <b>ChatPanel</b> and press send. ChatPanel does not know about networks "
+        + "or state — it just hands the text to the hook by calling <span class='mono'>addMessage(text)</span>.",
+    code: "// ChatPanel.tsx\n<MessageInput onSend={(text) => addMessage(text)} />",
+    active: ["chatpanel", "hook"], wires: ["cp-hook"], packet: "hook", label: "text"
+  },
+  {
+    title: "2 · The user bubble appears instantly",
+    text: "<span class='mono'>addMessage</span> appends the <b>user message to state right away</b> — "
+        + "before any network call. The bubble shows the same instant you press send. This is the "
+        + "instant-feedback behaviour from GIGA-1: the UI never waits on the server to confirm what "
+        + "you just typed.",
+    code: "// useMessages.ts — step (a): append immediately\nconst userMessage = { id: makeId(), role: 'user', text };\nsetMessages(prev => [...prev, userMessage]);",
+    active: ["hook"], wires: [], packet: "hook", label: "user msg"
+  },
+  {
+    title: "3 · isTyping flips on",
+    text: "The hook sets <span class='mono'>isTyping = true</span>. The typing indicator appears in "
+        + "ChatPanel. <b>isTyping</b> is the hook's second piece of state — it stays true until a "
+        + "reply lands, or until the request fails. (App.tsx now passes this real value down, "
+        + "replacing the hardcoded <span class='mono'>false</span>.)",
+    code: "// useMessages.ts\nconst [isTyping, setIsTyping] = useState(false);\n// ...\nsetIsTyping(true);",
+    active: ["hook", "chatpanel"], wires: [], packet: "hook", label: "isTyping"
+  },
+  {
+    title: "4 · The hook hands off to api.ts",
+    text: "Now <span class='mono'>addMessage</span> calls <span class='mono'>await postMessage(text)</span>. "
+        + "This is the layer boundary: <b>the hook owns state, api.ts owns the network</b>. "
+        + "<span class='mono'>await</span> means \"pause this function until the promise resolves\" — "
+        + "the rest of the app keeps running while we wait.",
+    code: "// useMessages.ts — step (b): cross into the network layer\nimport { postMessage } from '../features/chat/api';\n\nconst reply = await postMessage(text);",
+    active: ["hook", "api"], wires: ["hook-api"], packet: "api", label: "text"
+  },
+  {
+    title: "5 · api.ts fires a same-origin fetch",
+    text: "<b>api.ts</b> runs <span class='mono'>fetch(\"/messages\", ...)</span>. The URL is "
+        + "<b>relative</b> — no <span class='mono'>http://localhost:3000</span> anywhere. The browser "
+        + "sends it to the page's own origin, port 5173. Because it is same-origin, there is "
+        + "<b>no CORS check to fail</b>. (CORS = the browser's rule that a page may only call its own "
+        + "origin unless the server explicitly opts in.)",
+    code: "// api.ts — owns the HTTP call, imports no React\nexport async function postMessage(text) {\n  const res = await fetch('/messages', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ text }),\n  });\n  return res.json();\n}",
+    active: ["api"], wires: [], packet: "api", label: "fetch"
+  },
+  {
+    title: "6 · The Vite proxy forwards it",
+    text: "The Vite dev server on :5173 also serves your app. Its <span class='mono'>server.proxy</span> "
+        + "config says: anything to <span class='mono'>/messages</span>, forward to "
+        + "<span class='mono'>localhost:3000</span>. The browser stayed same-origin; <b>the proxy "
+        + "crosses the port gap server-side</b>, where CORS does not apply. That is why we proxy "
+        + "instead of opening CORS on the backend.",
+    code: "// vite.config.ts\nexport default defineConfig({\n  server: {\n    proxy: {\n      '/messages': 'http://localhost:3000',\n    },\n  },\n});",
+    active: ["api", "proxy"], wires: ["api-proxy"], packet: "proxy", label: "POST /messages"
+  },
+  {
+    title: "7 · The backend echoes, and mints the id",
+    text: "The Express route <span class='mono'>POST /messages</span> receives the request. The "
+        + "in-memory store builds the echo reply and <b>generates the assistant message's id</b>. "
+        + "The id is the backend's to own — the frontend does not invent one for the assistant "
+        + "message.",
+    code: "// backend — route + store (GIGA-3)\napp.post('/messages', (req, res) => {\n  const { text } = req.body;\n  const reply = {\n    id: makeId(),              // <-- backend owns this id\n    role: 'assistant',\n    text: `Echo: \"${text}\"`,\n  };\n  res.json(reply);\n});",
+    active: ["route", "store"], wires: ["proxy-route", "route-store"], packet: "store", label: "POST /messages"
+  },
+  {
+    title: "8 · The JSON reply travels back",
+    text: "The backend responds with JSON — the assistant <span class='mono'>Message</span>, its "
+        + "backend-minted id included. It retraces the path: back through the <b>proxy</b>, back to "
+        + "<b>api.ts</b>, which is still paused on its <span class='mono'>await fetch(...)</span>.",
+    code: "// the response body, as JSON\n{\n  \"id\": \"a3f9-...\",        // minted by the backend\n  \"role\": \"assistant\",\n  \"text\": \"Echo: \\\"book me a cab\\\"\"\n}",
+    active: ["store", "route", "proxy", "api"], wires: ["proxy-route", "api-proxy"], packet: "api", label: "JSON reply"
+  },
+  {
+    title: "9 · The loop closes",
+    text: "<b>api.ts</b> does <span class='mono'>await res.json()</span> and returns the assistant "
+        + "<span class='mono'>Message</span>. Back in the hook, <span class='mono'>addMessage</span> "
+        + "appends it to state and sets <span class='mono'>isTyping = false</span>. The assistant "
+        + "bubble renders, the typing dots vanish — the round trip is complete.",
+    code: "// useMessages.ts — step (c): reply arrives\nconst reply = await postMessage(text);\nsetMessages(prev => [...prev, reply]);\nsetIsTyping(false);\n// (and: catch -> console.error + setIsTyping(false))",
+    active: ["api", "hook", "chatpanel"], wires: ["hook-api", "cp-hook"], packet: "chatpanel", label: "assistant msg"
+  }
+];
+
+const stage = document.getElementById('stage');
+const wiresSvg = document.getElementById('wires');
+const packet = document.getElementById('packet');
+const packetLabel = document.getElementById('packet-label');
+let i = 0, playing = false, timer = null;
+
+// --- build progress dots ---
+const dotsWrap = document.getElementById('dots');
+document.getElementById('total').textContent = steps.length - 1;
+steps.forEach((_, idx) => {
+  const d = document.createElement('div');
+  d.className = 'dot';
+  d.onclick = () => { stop(); go(idx); };
+  dotsWrap.appendChild(d);
+});
+
+// --- wire definitions: [fromId, toId] ---
+const wireDefs = {
+  'cp-hook':     ['chatpanel', 'hook'],
+  'hook-api':    ['hook', 'api'],
+  'api-proxy':   ['api', 'proxy'],
+  'proxy-route': ['proxy', 'route'],
+  'route-store': ['route', 'store'],
+};
+
+function rectIn(el) {
+  const r = el.getBoundingClientRect();
+  const s = stage.getBoundingClientRect();
+  return { x: r.left - s.left, y: r.top - s.top, w: r.width, h: r.height,
+           cx: r.left - s.left + r.width / 2, cy: r.top - s.top + r.height / 2 };
+}
+
+function anchors(a, b) {
+  const dx = b.cx - a.cx, dy = b.cy - a.cy;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0
+      ? [{x:a.x+a.w,y:a.cy},{x:b.x,y:b.cy}]
+      : [{x:a.x,y:a.cy},{x:b.x+b.w,y:b.cy}];
+  } else {
+    return dy >= 0
+      ? [{x:a.cx,y:a.y+a.h},{x:b.cx,y:b.y}]
+      : [{x:a.cx,y:a.y},{x:b.cx,y:b.y+b.h}];
+  }
+}
+
+function drawWires() {
+  const s = stage.getBoundingClientRect();
+  wiresSvg.setAttribute('viewBox', `0 0 ${s.width} ${s.height}`);
+  wiresSvg.innerHTML = '';
+  for (const key in wireDefs) {
+    const [fromId, toId] = wireDefs[key];
+    const [p1, p2] = anchors(rectIn(document.getElementById(fromId)),
+                             rectIn(document.getElementById(toId)));
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+    line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+    line.setAttribute('stroke-width', '2.5');
+    line.setAttribute('stroke-linecap', 'round');
+    line.dataset.key = key;
+    line.setAttribute('stroke', '#2c2f48');
+    wiresSvg.appendChild(line);
+  }
+  highlightWires(steps[i].wires);
+}
+
+function highlightWires(keys) {
+  wiresSvg.querySelectorAll('line').forEach(l => {
+    const on = keys.includes(l.dataset.key);
+    l.setAttribute('stroke', on ? '#f6b657' : '#2c2f48');
+    l.setAttribute('stroke-dasharray', on ? '7 6' : 'none');
+    if (on) {
+      let anim = l.querySelector('animate');
+      if (!anim) {
+        anim = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+        anim.setAttribute('attributeName', 'stroke-dashoffset');
+        anim.setAttribute('from', '26'); anim.setAttribute('to', '0');
+        anim.setAttribute('dur', '0.7s');
+        anim.setAttribute('repeatCount', 'indefinite');
+        l.appendChild(anim);
+      }
+    }
+  });
+}
+
+function placePacket(nodeId) {
+  if (!nodeId) { packet.classList.add('hidden'); return; }
+  const r = rectIn(document.getElementById(nodeId));
+  packet.classList.remove('hidden');
+  packet.style.left = r.cx + 'px';
+  packet.style.top = r.cy + 'px';
+}
+
+function render() {
+  const s = steps[i];
+  document.getElementById('cur').textContent = i;
+  document.getElementById('step-title').textContent = s.title;
+  document.getElementById('step-text').innerHTML = s.text;
+
+  // code with comment colouring
+  const codeEl = document.getElementById('step-code');
+  codeEl.innerHTML = '';
+  s.code.split('\n').forEach((ln, idx, arr) => {
+    const cmt = ln.indexOf('//');
+    if (cmt >= 0) {
+      codeEl.appendChild(document.createTextNode(ln.slice(0, cmt)));
+      const span = document.createElement('span');
+      span.className = 'cmt';
+      span.textContent = ln.slice(cmt);
+      codeEl.appendChild(span);
+    } else {
+      codeEl.appendChild(document.createTextNode(ln));
+    }
+    if (idx < arr.length - 1) codeEl.appendChild(document.createTextNode('\n'));
+  });
+
+  // node highlights
+  document.querySelectorAll('.node').forEach(n =>
+    n.classList.toggle('active', s.active.includes(n.id)));
+
+  // wires + packet
+  highlightWires(s.wires);
+  packetLabel.textContent = s.label;
+  placePacket(s.packet);
+
+  // mini chat state
+  document.getElementById('ub').classList.toggle('show', i >= 2);
+  document.getElementById('typing').classList.toggle('show', i >= 3 && i <= 8);
+  document.getElementById('ab').classList.toggle('show', i >= 9);
+
+  // dots
+  dotsWrap.querySelectorAll('.dot').forEach((d, idx) => {
+    d.classList.toggle('active', idx === i);
+    d.classList.toggle('done', idx < i);
+  });
+
+  document.getElementById('prev').disabled = i === 0;
+  document.getElementById('next').disabled = i === steps.length - 1;
+}
+
+function go(n) {
+  i = Math.max(0, Math.min(steps.length - 1, n));
+  render();
+}
+
+function stop() {
+  playing = false;
+  clearInterval(timer);
+  document.getElementById('play').textContent = '▶ Play';
+}
+
+document.getElementById('next').onclick = () => { stop(); go(i + 1); };
+document.getElementById('prev').onclick = () => { stop(); go(i - 1); };
+document.getElementById('play').onclick = () => {
+  if (playing) { stop(); return; }
+  if (i === steps.length - 1) go(0);
+  playing = true;
+  document.getElementById('play').textContent = '❚❚ Pause';
+  timer = setInterval(() => {
+    if (i === steps.length - 1) { stop(); return; }
+    go(i + 1);
+  }, 2800);
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') { stop(); go(i + 1); }
+  if (e.key === 'ArrowLeft')  { stop(); go(i - 1); }
+});
+
+window.addEventListener('resize', () => { drawWires(); placePacket(steps[i].packet); });
+window.addEventListener('load', () => { drawWires(); render(); });
+drawWires();
+render();
+</script>
+</body>
+</html>
