@@ -1,12 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Message } from "../features/chat";
-import { postMessage } from "../features/chat/api";
+import { getMessages, postMessage } from "../features/chat/api";
 
-/**
- * Owns the conversation as live state. Today it only knows how to append a
- * user message; later, the SSE handler will append assistant messages into
- * the same array (see design-notes.md).
- */
 export function useMessages() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -29,6 +24,19 @@ export function useMessages() {
       setIsTyping(false);
     }
   }
+
+  // An effect callback can't be async, so the fetch runs in an inner function.
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const history = await getMessages();
+        setMessages(history);
+      } catch (error) {
+        console.error("Failed to load messages:", error);
+      }
+    }
+    loadHistory();
+  }, []);
 
   return { messages, addMessage, isTyping };
 }

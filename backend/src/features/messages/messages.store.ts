@@ -5,6 +5,6 @@ export function addMessage(message: Message) {
   messages.push(message);
   return message;
 }
-export function listMessages() {
+export function getMessages(): Message[] {
   return messages;
 }

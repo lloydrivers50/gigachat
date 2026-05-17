@@ -20,3 +20,17 @@ export async function postMessage(text: string): Promise<Message> {
     throw error;
   }
 }
+
+export async function getMessages(): Promise<Message[]> {
+  try {
+    const response = await fetch("/messages");
+    if (!response.ok) {
+      throw new Error(`Error fetching messages: ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data as Message[];
+  } catch (error) {
+    console.error("Failed to fetch messages:", error);
+    throw error;
+  }
+}

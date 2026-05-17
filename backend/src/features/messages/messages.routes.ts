@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { addMessage } from "./messages.store";
+import { addMessage, getMessages } from "./messages.store";
 import type { Message } from "./messages.types";
 
 export const messagesRouter = Router();
@@ -26,4 +26,8 @@ messagesRouter.post("/messages", (req, res) => {
   addMessage(userMessage);
   addMessage(assistantMessage);
   res.status(201).json(assistantMessage);
+});
+
+messagesRouter.get("/messages", (req, res) => {
+  res.json(getMessages());
 });
