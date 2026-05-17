@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Message identity — who owns the id?</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #2b3340;
+    --ink: #e6edf3; --dim: #8b949e; --accent: #58a6ff;
+    --good: #3fb950; --bad: #f85149; --warn: #d29922;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, Segoe UI, Roboto, sans-serif;
+    padding: 28px 20px 60px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 21px; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13.5px; }
+
+  .modes { display: flex; gap: 8px; margin-bottom: 18px; }
+  .modes button {
+    flex: 1; padding: 11px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--dim);
+    font-size: 13px; font-weight: 600; transition: .15s;
+  }
+  .modes button.on { border-color: var(--accent); color: var(--ink); background: #15263f; }
+  .modes button:hover { color: var(--ink); }
+
+  .stage { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 13px 14px; transition: .2s; min-height: 150px;
+  }
+  .card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .card h3 { margin: 0 0 3px; font-size: 12px; letter-spacing: .04em;
+             text-transform: uppercase; color: var(--dim); }
+  .card .role { font-size: 11.5px; color: var(--dim); margin-bottom: 9px; }
+
+  .msglist { display: flex; flex-direction: column; gap: 6px; min-height: 24px; }
+  .msg {
+    font: 12px var(--mono); padding: 6px 9px; border-radius: 6px;
+    background: #11243c; border: 1px solid #1f3a5c; animation: pop .3s ease;
+  }
+  @keyframes pop { from { transform: scale(.85); opacity: 0; } }
+  .idpill {
+    display: inline-block; padding: 1px 7px; border-radius: 5px;
+    border: 1px solid #1f3a5c; background: #11243c; color: var(--accent);
+    font: 11.5px var(--mono); margin-right: 6px;
+  }
+  .idpill.good { color: var(--good); border-color: #1f4a2c; background: #0f2a16; }
+  .idpill.prov { color: var(--warn); border-color: #4a3a18; background: #271f0e; }
+  .empty { color: var(--dim); font: 12px var(--mono); }
+
+  /* network strip */
+  .net {
+    position: relative; height: 56px; margin: 12px 0 4px;
+    background: var(--panel); border: 1px dashed var(--line);
+    border-radius: 10px; overflow: hidden;
+  }
+  .net .lbl { position: absolute; top: 6px; left: 12px; font-size: 11px;
+              color: var(--dim); letter-spacing: .04em; text-transform: uppercase; }
+  .packet {
+    position: absolute; top: 24px; transform: translateX(-50%);
+    padding: 4px 9px; border-radius: 6px; font: 11.5px var(--mono);
+    white-space: nowrap; transition: left .55s ease, opacity .3s;
+    background: #11243c; border: 1px solid var(--accent); color: var(--accent);
+    opacity: 0; left: 8%;
+  }
+  .packet.show { opacity: 1; }
+
+  .verdict {
+    text-align: center; font: 12.5px var(--mono); padding: 7px;
+    border-radius: 7px; margin: 4px 0; border: 1px solid var(--line);
+    background: var(--panel); color: var(--dim);
+  }
+  .verdict.good { color: var(--good); border-color: #1f4a2c; background: #0f2a16; }
+  .verdict.bad  { color: var(--bad);  border-color: #4a1f22; background: #2d1416; }
+  .verdict.warn { color: var(--warn); border-color: #4a3a18; background: #271f0e; }
+
+  .narr {
+    background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent); border-radius: 8px;
+    padding: 12px 14px; margin: 12px 0; min-height: 60px;
+  }
+  .narr .step { font-size: 11px; color: var(--dim); letter-spacing: .05em;
+                text-transform: uppercase; }
+  .narr p { margin: 4px 0 0; }
+  .callout { margin-top: 8px; font-size: 13.5px; }
+  .callout.good { color: var(--good); }
+  .callout.bad  { color: var(--bad); }
+  .callout.warn { color: var(--warn); }
+
+  .controls { display: flex; gap: 9px; }
+  .controls button {
+    padding: 9px 18px; border-radius: 7px; cursor: pointer; font-weight: 600;
+    font-size: 13.5px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--ink); transition: .15s;
+  }
+  .controls button.primary { background: var(--accent); border-color: var(--accent);
+                              color: #07101e; }
+  .controls button:disabled { opacity: .4; cursor: not-allowed; }
+  .controls button:not(:disabled):hover { border-color: var(--accent); }
+
+  .legend {
+    margin-top: 24px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 9px; padding: 12px 15px; font-size: 13px; color: var(--dim);
+  }
+  .legend b { color: var(--ink); }
+  .legend p { margin: 5px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Message identity — who owns the id?</h1>
+  <p class="sub">A message needs an id to be rendered, keyed, and updated. The question is who mints it.</p>
+
+  <div class="modes">
+    <button id="m0" class="on">Both mint (today's accident)</button>
+    <button id="m1">Client owns the id</button>
+    <button id="m2">Server owns the id</button>
+  </div>
+
+  <div class="stage">
+    <div class="card" id="cBrowser">
+      <h3>Browser</h3>
+      <div class="role">local state · what the user sees</div>
+      <div class="msglist" id="browser"><span class="empty">no messages</span></div>
+    </div>
+    <div class="card" id="cServer">
+      <h3>Server</h3>
+      <div class="role">message store · the source of truth</div>
+      <div class="msglist" id="server"><span class="empty">no messages</span></div>
+    </div>
+  </div>
+
+  <div class="net">
+    <span class="lbl">network</span>
+    <div class="packet" id="packet">—</div>
+  </div>
+
+  <div class="verdict" id="verdict">— type a message to begin —</div>
+
+  <div class="narr">
+    <div class="step" id="stepLabel">Step 0</div>
+    <p id="narrText">Pick a mode above, then press <b>Next step</b>.</p>
+    <div class="callout" id="callout"></div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="next">Next step ▸</button>
+    <button id="reset">Reset</button>
+  </div>
+
+  <div class="legend">
+    <p><b>Identity</b> — the message's <code>id</code>. It names the message so the browser can
+       key the bubble, and so anything later (an edit, an assistant reply, an SSE update) can
+       point at the right message.</p>
+    <p><b>Ownership</b> — which side mints that id. The browser needs an id the instant the user
+       types (to render now); the server needs one to store a row. The bug is when both mint
+       <i>independently</i> — then one message carries two ids and nothing links them.</p>
+  </div>
+</div>
+
+<script>
+// each step is a full snapshot. msg = {id, prov?}
+const MODE_A = [
+  { lbl:"Start", txt:"The user types \"hi\". Nothing has an id yet.",
+    browser:[], server:[], packet:null },
+  { lbl:"Browser mints an id", active:"cBrowser",
+    txt:"The browser mints id c-7f3a and adds the message to local state, so the bubble renders right away.",
+    browser:[{id:"c-7f3a"}], server:[],
+    callout:{cls:"warn",txt:"This id exists only in the browser so far."} },
+  { lbl:"Browser POSTs", active:"cBrowser",
+    txt:"The browser sends POST /messages — but the body is only { role, text }. The id stays behind.",
+    browser:[{id:"c-7f3a"}], server:[], packet:{dir:"fwd",text:"POST {role, text}"} },
+  { lbl:"Server mints its own id", active:"cServer",
+    txt:"The server received no id, so it mints its own: s-9b2e. It stores the message under that.",
+    browser:[{id:"c-7f3a"}], server:[{id:"s-9b2e"}],
+    callout:{cls:"warn",txt:"A second id, minted for the same message."} },
+  { lbl:"Server responds", active:"cServer",
+    txt:"The server replies 201 with its id, s-9b2e.",
+    browser:[{id:"c-7f3a"}], server:[{id:"s-9b2e"}], packet:{dir:"back",text:"201 {id: s-9b2e}"} },
+  { lbl:"Mismatch", active:"cBrowser",
+    txt:"The browser keyed its bubble c-7f3a. The server's row is s-9b2e. Same message, two ids — the browser can't tell which server row its bubble is.",
+    browser:[{id:"c-7f3a"}], server:[{id:"s-9b2e"}],
+    callout:{cls:"bad",txt:"Two ids for one message, and nothing reconciles them. This is the bug."} },
+];
+
+const MODE_B = [
+  { lbl:"Start", txt:"The user types \"hi\". Nothing has an id yet.",
+    browser:[], server:[], packet:null },
+  { lbl:"Browser mints the id", active:"cBrowser",
+    txt:"The browser mints id c-7f3a, adds the message to local state, and renders it.",
+    browser:[{id:"c-7f3a"}], server:[],
+    callout:{cls:"warn",txt:"This will be the message's permanent id."} },
+  { lbl:"Browser POSTs — id included", active:"cBrowser",
+    txt:"The browser sends POST /messages with the id in the body: { id, role, text }.",
+    browser:[{id:"c-7f3a"}], server:[], packet:{dir:"fwd",text:"POST {id: c-7f3a, role, text}"} },
+  { lbl:"Server reuses the id", active:"cServer",
+    txt:"The server checks the id is a valid string, then stores the message under that id. It never calls randomUUID.",
+    browser:[{id:"c-7f3a"}], server:[{id:"c-7f3a"}],
+    callout:{cls:"good",txt:"The server kept the client's id. One id."} },
+  { lbl:"Server responds", active:"cServer",
+    txt:"The server replies 201 with the same id, c-7f3a.",
+    browser:[{id:"c-7f3a"}], server:[{id:"c-7f3a"}], packet:{dir:"back",text:"201 {id: c-7f3a}"} },
+  { lbl:"Already agree", active:"cBrowser",
+    txt:"The browser's bubble and the server's row share one id. There is nothing to reconcile.",
+    browser:[{id:"c-7f3a"}], server:[{id:"c-7f3a"}],
+    callout:{cls:"good",txt:"One id, minted once, in the browser. The client owns identity."} },
+];
+
+const MODE_C = [
+  { lbl:"Start", txt:"The user types \"hi\". Nothing has an id yet.",
+    browser:[], server:[], packet:null },
+  { lbl:"Browser mints a temp id", active:"cBrowser",
+    txt:"The browser mints a temporary id, tmp-1, just so it can render the bubble immediately.",
+    browser:[{id:"tmp-1",prov:true}], server:[],
+    callout:{cls:"warn",txt:"tmp-1 is provisional — it is not the real id."} },
+  { lbl:"Browser POSTs", active:"cBrowser",
+    txt:"The browser sends POST /messages with only { role, text }. The temp id stays local.",
+    browser:[{id:"tmp-1",prov:true}], server:[], packet:{dir:"fwd",text:"POST {role, text}"} },
+  { lbl:"Server mints the real id", active:"cServer",
+    txt:"The server mints the canonical id s-9b2e and stores the message.",
+    browser:[{id:"tmp-1",prov:true}], server:[{id:"s-9b2e"}],
+    callout:{cls:"warn",txt:"This is the real id. The browser does not have it yet."} },
+  { lbl:"Server responds", active:"cServer",
+    txt:"The server replies 201 with the canonical id, s-9b2e.",
+    browser:[{id:"tmp-1",prov:true}], server:[{id:"s-9b2e"}], packet:{dir:"back",text:"201 {id: s-9b2e}"} },
+  { lbl:"Browser reconciles", active:"cBrowser",
+    txt:"The browser finds the tmp-1 message in local state and swaps its id to s-9b2e.",
+    browser:[{id:"s-9b2e"}], server:[{id:"s-9b2e"}],
+    callout:{cls:"good",txt:"The temp id lived only until the response. Now both sides agree. The server owns identity."} },
+];
+
+const MODES = [MODE_A, MODE_B, MODE_C];
+let mode = 0, i = 0;
+const steps = () => MODES[mode];
+const $ = id => document.getElementById(id);
+const packet = $("packet");
+
+function renderList(el, list) {
+  const serverIds = steps()[i].server.map(m => m.id);
+  const browserIds = steps()[i].browser.map(m => m.id);
+  const others = el === $("browser") ? serverIds : browserIds;
+  if (!list.length) { el.innerHTML = '<span class="empty">no messages</span>'; return; }
+  el.innerHTML = list.map(m => {
+    let cls = "idpill";
+    if (m.prov) cls += " prov";
+    else if (others.includes(m.id)) cls += " good";
+    return `<div class="msg"><span class="${cls}">id ${m.id}</span>text:"hi"</div>`;
+  }).join("");
+}
+
+function render() {
+  const s = steps()[i];
+
+  $("cBrowser").classList.toggle("active", s.active === "cBrowser");
+  $("cServer").classList.toggle("active", s.active === "cServer");
+
+  renderList($("browser"), s.browser);
+  renderList($("server"), s.server);
+
+  // packet
+  packet.className = "packet";
+  if (!s.packet) { packet.classList.remove("show"); }
+  else {
+    packet.textContent = s.packet.text;
+    packet.classList.add("show");
+    packet.style.left = s.packet.dir === "fwd" ? "88%" : "12%";
+  }
+
+  // verdict
+  const v = $("verdict");
+  const b = s.browser[0], sv = s.server[0];
+  if (!b && !sv) { v.textContent = "— no message yet —"; v.className = "verdict"; }
+  else if (b && !sv) { v.textContent = "browser has the message · server does not yet";
+                       v.className = "verdict"; }
+  else if (b && sv && b.prov) {
+    v.textContent = `browser id ${b.id} is provisional · server id ${sv.id}`;
+    v.className = "verdict warn";
+  }
+  else if (b && sv && b.id === sv.id) {
+    v.textContent = `✓ ids agree — both sides call it ${b.id}`;
+    v.className = "verdict good";
+  }
+  else if (b && sv) {
+    v.textContent = `✗ ids disagree — browser ${b.id} vs server ${sv.id}`;
+    v.className = "verdict bad";
+  }
+
+  // narration
+  $("stepLabel").textContent = `Step ${i} / ${steps().length - 1} · ${s.lbl}`;
+  $("narrText").innerHTML = s.txt;
+  const c = $("callout");
+  if (s.callout) { c.textContent = s.callout.txt; c.className = "callout " + s.callout.cls; }
+  else { c.textContent = ""; c.className = "callout"; }
+
+  $("next").disabled = i >= steps().length - 1;
+}
+
+function setMode(m) {
+  mode = m; i = 0;
+  ["m0","m1","m2"].forEach((id, n) => $(id).classList.toggle("on", n === m));
+  packet.style.transition = "none";
+  packet.style.left = "8%";
+  requestAnimationFrame(() => packet.style.transition = "");
+  render();
+}
+
+$("next").onclick  = () => { if (i < steps().length - 1) { i++; render(); } };
+$("reset").onclick = () => setMode(mode);
+$("m0").onclick = () => setMode(0);
+$("m1").onclick = () => setMode(1);
+$("m2").onclick = () => setMode(2);
+
+setMode(0);
+</script>
+</body>
+</html>
