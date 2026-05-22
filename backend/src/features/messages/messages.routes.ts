@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { addMessage, getMessages } from "./messages.store";
 import type { Message } from "./messages.types";
+import { emitToken, emitter, emitDone } from "./messages.stream";
 
 export const messagesRouter = Router();
 
@@ -10,24 +11,59 @@ messagesRouter.post("/messages", (req, res) => {
     res.status(400).json({ error: "Invalid message format" });
     return;
   }
-
   const userMessage: Message = {
     id: crypto.randomUUID(),
     role: "user",
     text,
   };
-
-  const assistantMessage: Message = {
+  addMessage(userMessage);
+  const assistantMessage = {
     id: crypto.randomUUID(),
     role: "assistant",
-    text: `Echo: "${text}"`,
   };
 
-  addMessage(userMessage);
-  addMessage(assistantMessage);
-  res.status(201).json(assistantMessage);
+  res.status(202).json({ id: assistantMessage.id });
+
+  const tokens = text.split(" ");
+
+  const interval = setInterval(() => {
+    if (tokens.length === 0) {
+      emitDone(assistantMessage.id);
+      clearInterval(interval);
+      return;
+    }
+    const word = tokens.shift();
+    emitToken(assistantMessage.id, word!);
+  }, 120);
 });
 
 messagesRouter.get("/messages", (req, res) => {
-  res.json(getMessages());
+  const messages = getMessages();
+  res.json(messages);
+});
+
+messagesRouter.get("/messages/stream", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  if (res.flushHeaders) {
+    res.flushHeaders();
+  }
+
+  const tokenListener = ({ id, chunk }: { id: string; chunk: string }) => {
+    res.write(`event: token\ndata: ${JSON.stringify({ id, chunk })}\n\n`);
+  };
+
+  emitter.on("token", tokenListener);
+
+  const doneListener = ({ id }: { id: string }) => {
+    res.write(`event: done\ndata: ${JSON.stringify({ id, done: true })}\n\n`);
+  };
+
+  emitter.on("done", doneListener);
+
+  req.on("close", () => {
+    emitter.off("token", tokenListener);
+    emitter.off("done", doneListener);
+  });
 });
