@@ -17,27 +17,34 @@ messagesRouter.post("/messages", (req, res) => {
     text,
   };
   addMessage(userMessage);
-  const assistantMessage = {
+
+  const responseText = `Echo: "${text}"`;
+  const assistantMessage: Message = {
     id: crypto.randomUUID(),
     role: "assistant",
+    text: responseText,
   };
 
   res.status(202).json({ id: assistantMessage.id });
 
-  const tokens = text.split(" ");
+  streamReply(assistantMessage);
+});
+
+function streamReply(message: Message) {
+  const tokens = message.text.split(" ");
 
   const interval = setInterval(() => {
     if (tokens.length === 0) {
-      emitDone(assistantMessage.id);
+      addMessage(message);
+      emitDone(message.id);
       clearInterval(interval);
       return;
     }
-    const word = tokens.shift();
-    emitToken(assistantMessage.id, word!);
+    emitToken(message.id, tokens.shift()!);
   }, 120);
-});
+}
 
-messagesRouter.get("/messages", (req, res) => {
+messagesRouter.get("/messages", (_req, res) => {
   const messages = getMessages();
   res.json(messages);
 });
@@ -57,7 +64,7 @@ messagesRouter.get("/messages/stream", (req, res) => {
   emitter.on("token", tokenListener);
 
   const doneListener = ({ id }: { id: string }) => {
-    res.write(`event: done\ndata: ${JSON.stringify({ id, done: true })}\n\n`);
+    res.write(`event: done\ndata: ${JSON.stringify({ id })}\n\n`);
   };
 
   emitter.on("done", doneListener);
