@@ -21,6 +21,9 @@ export function useMessages() {
         ...prev,
         { id, role: "assistant", text: "", streaming: true },
       ]);
+      // Hand off: the streaming bubble now signals activity, so the pre-bubble
+      // typing indicator can go. From here `streaming` owns the live state.
+      setIsTyping(false);
     } catch (error) {
       setIsTyping(false);
       console.error("Failed to send message:", error);
@@ -75,9 +78,7 @@ export function useMessages() {
             msg.id === id ? { ...msg, streaming: false } : msg,
           ),
         );
-        setIsTyping(false);
       } catch (error) {
-        setIsTyping(false);
         console.error("Failed to parse SSE data:", error);
       }
     });
