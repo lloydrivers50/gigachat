@@ -10,4 +10,5 @@ export interface Message {
   id: string;
   role: MessageRole;
   text: string;
+  streaming?: boolean;
 }

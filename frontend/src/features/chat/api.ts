@@ -1,6 +1,6 @@
 import type { Message } from "./types";
 
-export async function postMessage(text: string): Promise<Message> {
+export async function postMessage(text: string): Promise<{ id: string }> {
   try {
     const response = await fetch("/messages", {
       method: "POST",
@@ -11,10 +11,12 @@ export async function postMessage(text: string): Promise<Message> {
     });
 
     if (!response.ok) {
+      // As far as I can tell this gets thrown and nothing catches it. The error is logged in the console, but the user doesn't get any feedback. We should probably show some kind of error message in the UI when this happens.
       throw new Error(`Error posting message: ${response.statusText}`);
     }
+    // This is now { id: assistantMessage.id } so the casting here is not true to what is actually returned. Therefore it must change to reflect the actual return type, which is { id: string }
     const data = await response.json();
-    return data as Message;
+    return data as { id: string };
   } catch (error) {
     console.error("Failed to post message:", error);
     throw error;
