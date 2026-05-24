@@ -1,10 +1,16 @@
+import { pool } from "../../db/pool";
 import type { Message } from "./messages.types";
-const messages: Message[] = []; // <- sits at the TOP of the file
 
-export function addMessage(message: Message) {
-  messages.push(message);
-  return message;
+export async function addMessage(m: Message) {
+  await pool.query(
+    "INSERT INTO messages (id, role, text) VALUES ($1, $2, $3)",
+    [m.id, m.role, m.text],
+  );
+  return m;
 }
-export function getMessages(): Message[] {
-  return messages;
+export async function getMessages(): Promise<Message[]> {
+  const result = await pool.query(
+    "SELECT id, role, text FROM messages ORDER BY created_at"
+  );
+  return result.rows;
 }

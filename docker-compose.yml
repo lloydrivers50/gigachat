@@ -7,6 +7,23 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_USER: gigachat
+      POSTGRES_PASSWORD: gigachat
+      POSTGRES_DB: gigachat
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+
 volumes:
   redis_data:
+    driver: local
+  pgdata:
     driver: local

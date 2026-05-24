@@ -6,7 +6,7 @@ import { enqueueReply } from "../../queue/messages.queue";
 
 export const messagesRouter = Router();
 
-messagesRouter.post("/messages", (req, res) => {
+messagesRouter.post("/messages", async (req, res) => {
   const { text } = req.body;
   if (typeof text !== "string" || text.length === 0) {
     res.status(400).json({ error: "Invalid message format" });
@@ -19,7 +19,7 @@ messagesRouter.post("/messages", (req, res) => {
     text,
   };
 
-  addMessage(userMessage);
+  await addMessage(userMessage);
 
   const assistantId = crypto.randomUUID();
   res.status(202).json({ id: assistantId });
@@ -28,8 +28,8 @@ messagesRouter.post("/messages", (req, res) => {
   console.log(`enqueued reply ${assistantId}`);
 });
 
-messagesRouter.get("/messages", (_req, res) => {
-  const messages = getMessages();
+messagesRouter.get("/messages", async (_req, res) => {
+  const messages = await getMessages();
   res.json(messages);
 });
 
