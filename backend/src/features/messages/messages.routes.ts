@@ -3,6 +3,9 @@ import { addMessage, getMessages } from "./messages.store";
 import type { Message } from "./messages.types";
 import { sub, CHANNEL } from "./messages.stream";
 import { enqueueReply } from "../../queue/messages.queue";
+import { logger } from "../../logger";
+
+const log = logger.child({ proc: "web" });
 
 export const messagesRouter = Router();
 
@@ -25,7 +28,7 @@ messagesRouter.post("/messages", async (req, res) => {
   res.status(202).json({ id: assistantId });
 
   enqueueReply(assistantId, text);
-  console.log(`enqueued reply ${assistantId}`);
+  log.info({ assistantId }, "reply enqueued");
 });
 
 messagesRouter.get("/messages", async (_req, res) => {
@@ -42,7 +45,7 @@ messagesRouter.get("/messages/stream", (req, res) => {
   }
 
   sub.subscribe(CHANNEL);
-  console.log("SSE client connected");
+  log.info("SSE client connected");
 
   const onMessage = (_channel: string, message: string) => {
     const data = JSON.parse(message);
@@ -58,6 +61,6 @@ messagesRouter.get("/messages/stream", (req, res) => {
 
   req.on("close", () => {
     sub.off("message", onMessage);
-    console.log("SSE client disconnected");
+    log.info("SSE client disconnected");
   });
 });

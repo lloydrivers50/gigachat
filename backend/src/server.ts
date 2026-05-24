@@ -1,9 +1,10 @@
 import { createApp } from "./app";
+import { logger } from "./logger";
 
 const PORT = Number(process.env.PORT ?? 3000);
 
 const app = createApp();
 
 app.listen(PORT, () => {
-  console.log(`gigachat backend listening on http://localhost:${PORT}`);
+  logger.info({ port: PORT }, "backend listening");
 });

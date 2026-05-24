@@ -2,6 +2,9 @@ import { Worker } from "bullmq";
 import { emitDone, emitToken } from "../features/messages/messages.stream";
 import { addMessage } from "../features/messages/messages.store";
 import { connection } from "../queue/connection";
+import { logger } from "../logger";
+
+const log = logger.child({ proc: "worker" });
 
 new Worker(
   "reply",
@@ -9,7 +12,7 @@ new Worker(
     const { id, text } = job.data;
     const reply = `Echo: "${text}"`;
     const tokens = reply.split(" ");
-    console.log(`job received for ${id} — ${tokens.length} tokens`);
+    log.info({ id, tokens: tokens.length }, "job received");
 
     for (const word of tokens) {
       emitToken(id, word);
@@ -17,12 +20,12 @@ new Worker(
     }
     await addMessage({ id, role: "assistant", text: reply });
     emitDone(id);
-    console.log(`job done for ${id}`);
+    log.info({ id }, "job done");
   },
   { connection },
 );
 
-console.log("reply worker up, waiting for jobs");
+log.info("reply worker up, waiting for jobs");
 
 async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
