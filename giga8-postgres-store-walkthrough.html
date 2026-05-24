@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<!--
+  ════════════════════════════════════════════════════════════════════════
+  CONCEPT WALKTHROUGH — giga8: swap the in-memory store for Postgres
+  Built from concept-walkthrough/template.html. Chrome untouched.
+  Replaced only: <head> header text, the #stage markup, the `steps` array,
+  and renderStage().
+  ════════════════════════════════════════════════════════════════════════
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>giga8 · Postgres store</title>
+<style>
+  :root {
+    --bg: #0d0e16; --panel: #161827; --panel-2: #1d2035;
+    --ink: #e7e8f0; --ink-dim: #9a9cb8; --line: #2c2f48;
+    --accent: #8b9bff; --good: #5cd3a4; --warn: #f6b657; --bad: #f6896b;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); }
+  body {
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 32px 24px 64px; max-width: 1180px; margin: 0 auto;
+  }
+  .mono, code, pre { font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+  code {
+    background: #0b0c14; border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 5px; font-size: 12.5px; color: #cdd2ee;
+  }
+
+  header { margin-bottom: 22px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--warn); font-weight: 600; margin-bottom: 8px;
+  }
+  h1 {
+    font-size: 28px; line-height: 1.2; font-weight: 700;
+    background: linear-gradient(100deg, var(--accent), #c79bff 55%, var(--good));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--ink-dim); margin-top: 8px; max-width: 760px; }
+
+  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 20px 0 16px; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; color: var(--ink);
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 16px; transition: background .15s, transform .05s;
+  }
+  button:hover { background: #2a2e4c; }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .38; cursor: default; }
+  button.primary { background: linear-gradient(120deg, #5a78d6, #7d5fd0); border-color: transparent; }
+  .counter { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+  .dots { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); cursor: pointer; transition: background .2s, transform .2s; }
+  .dot.done { background: #44496f; }
+  .dot.active { background: var(--accent); transform: scale(1.35); }
+
+  /* ---- stage ---- */
+  .stage {
+    position: relative; background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 24px 26px; min-height: 280px;
+  }
+  .node {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 11px;
+    padding: 14px 16px; transition: border-color .25s, box-shadow .25s, transform .25s, opacity .25s;
+  }
+  .node .n-title { font-weight: 700; font-size: 14px; }
+  .node .n-desc { color: var(--ink-dim); font-size: 12px; margin-top: 3px; }
+  .node.hot {
+    transform: translateY(-2px); border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 8px 26px -10px var(--accent);
+  }
+  .node.hot.good { border-color: var(--good); box-shadow: 0 0 0 1px var(--good), 0 8px 26px -10px var(--good); }
+  .node.hot.bad  { border-color: var(--bad);  box-shadow: 0 0 0 1px var(--bad),  0 8px 26px -10px var(--bad); }
+
+  /* ---- architecture strip ---- */
+  .arch { display: flex; align-items: stretch; gap: 14px; margin-bottom: 18px; }
+  .arch .col { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
+  .arch .procs { display: flex; flex-direction: column; gap: 12px; justify-content: center; }
+  .arrows { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 30px; color: var(--ink-dim); }
+  .arrow { font-size: 22px; line-height: 1; transition: color .25s, transform .25s; }
+  .arrow.hot { color: var(--accent); transform: scale(1.25); }
+  .store-box { display: flex; align-items: center; justify-content: center; flex: 1.2; }
+  .store-box .node { width: 100%; text-align: center; }
+  .pg .n-title { color: var(--good); }
+  .label-row { font-size: 11px; color: #4a4f72; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }
+
+  /* ---- code panel with line highlighting ---- */
+  .code-wrap { margin-top: 4px; }
+  .code-caption { font-size: 12px; color: var(--ink-dim); margin-bottom: 8px; font-family: "SF Mono", Menlo, Consolas, monospace; }
+  .code-caption b { color: var(--accent); font-weight: 600; }
+  .code-panel { background: #0b0c14; border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 6px 12px 0; overflow-x: auto; }
+  .code-line {
+    display: flex; font-size: 12.5px; line-height: 1.8; white-space: pre;
+    border-left: 3px solid transparent; transition: background .2s, border-color .2s, opacity .2s; opacity: .42;
+  }
+  .code-line .ln { width: 34px; text-align: right; padding-right: 12px; color: #4a4f72; user-select: none; flex: none; }
+  .code-line .code { padding-right: 14px; }
+  .code-line.hot { opacity: 1; background: rgba(139,155,255,.10); border-left-color: var(--accent); }
+  .code-line.hot.add { background: rgba(92,211,164,.10); border-left-color: var(--good); }
+  .code-line.hot.del { background: rgba(246,137,107,.10); border-left-color: var(--bad); }
+  .c-kw { color: #c79bff; } .c-str { color: #7fd0a3; }
+  .c-com { color: #5a5f85; font-style: italic; } .c-fn { color: #6ea8ff; }
+
+  /* ---- info cards ---- */
+  .info { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; margin-top: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px; }
+  .card h3 { font-size: 12px; letter-spacing: .07em; text-transform: uppercase; margin-bottom: 10px; }
+  .card.primary h3 { color: var(--accent); }
+  .card.secondary h3 { color: var(--good); }
+  .step-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .step-tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 999px; margin-left: 8px; vertical-align: middle;
+  }
+  .step-tag.good { background: rgba(92,211,164,.15); color: var(--good); }
+  .step-tag.bad  { background: rgba(246,137,107,.15); color: var(--bad); }
+  .step-text { color: var(--ink); }
+  .step-text code { font-size: 12px; }
+  .secondary-body { color: var(--ink-dim); font-size: 13.5px; }
+  .secondary-body code { font-size: 11.5px; }
+  .secondary-none { color: #4a4f72; font-style: italic; font-size: 13px; }
+
+  .hint { color: var(--ink-dim); font-size: 12px; margin-top: 16px; text-align: center; }
+  @media (max-width: 820px) { .info { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">gigachat · giga8 · implementation</div>
+  <h1>Replace the in-memory array with one shared Postgres</h1>
+  <p class="sub">You already know <em>why</em> refresh loses replies — two processes, two heaps,
+  two private arrays. This page is the <em>how</em>: the concrete steps to wire Postgres in so
+  the web server and the worker both read and write the same store.</p>
+</header>
+
+<div class="controls">
+  <button id="prev">‹ Back</button>
+  <button id="play" class="primary">▶ Play</button>
+  <button id="next">Next ›</button>
+  <span class="counter"><span id="cur">0</span> / <span id="total">0</span></span>
+  <div class="dots" id="dots"></div>
+</div>
+
+<!-- ════ stage: architecture strip + a code panel that swaps per step ════ -->
+<div class="stage" id="stage">
+  <div class="arch">
+    <div class="procs col" style="flex:1;">
+      <div class="label-row">processes</div>
+      <div class="node" id="proc-web">
+        <div class="n-title">web server</div>
+        <div class="n-desc">Express — POST/GET /messages</div>
+      </div>
+      <div class="node" id="proc-worker">
+        <div class="n-title">worker</div>
+        <div class="n-desc">BullMQ — generates the reply</div>
+      </div>
+    </div>
+    <div class="arrows">
+      <div class="arrow" id="arr-web">→</div>
+      <div class="arrow" id="arr-worker">→</div>
+    </div>
+    <div class="store-box">
+      <div class="node pg" id="store-pg">
+        <div class="n-title">Postgres</div>
+        <div class="n-desc">one shared <code>messages</code> table — survives a refresh</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-caption" id="code-caption"></div>
+    <div class="code-panel" id="code"></div>
+  </div>
+</div>
+
+<div class="info">
+  <div class="card primary">
+    <h3>What's happening</h3>
+    <div class="step-title" id="step-title"></div>
+    <div class="step-text" id="step-text"></div>
+  </div>
+  <div class="card secondary">
+    <h3 id="secondary-head">★ Note</h3>
+    <div id="step-secondary"></div>
+  </div>
+</div>
+
+<p class="hint">← / → arrow keys step through</p>
+
+<script>
+/* ── syntax highlighter — from template, extended vocab for SQL/pg ───────── */
+const KW = new Set(["import","from","export","function","async","const","let","var",
+  "return","await","try","catch","finally","new","if","else","for","while","class","throw",
+  "interface","type","CREATE","TABLE","PRIMARY","KEY","NOT","NULL","DEFAULT","SELECT","INSERT",
+  "INTO","VALUES","ORDER","BY","uuid","text","timestamptz"]);
+const FN = new Set(["useState","Promise","console","Map","Set","Array","Object","JSON",
+  "Pool","Number","crypto","pool","res","req"]);
+function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function highlight(line){
+  const re = /(\/\/.*$|--.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|([A-Za-z_]\w*)|([\s\S])/g;
+  let out="", m;
+  while((m=re.exec(line))){
+    if(m[1]) out+='<span class="c-com">'+esc(m[1])+'</span>';
+    else if(m[2]) out+='<span class="c-str">'+esc(m[2])+'</span>';
+    else if(m[3]) out+= KW.has(m[3])?'<span class="c-kw">'+m[3]+'</span>'
+                     : FN.has(m[3])?'<span class="c-fn">'+m[3]+'</span>': esc(m[3]);
+    else out+=esc(m[4]);
+  }
+  return out;
+}
+/* render a code string into #code as numbered, highlighted lines.
+   Per-line markers come from step.add / step.del (green/red gutters). */
+function buildCode(codeText){
+  const el = document.getElementById("code");
+  el.innerHTML = "";
+  codeText.split("\n").forEach((line,idx)=>{
+    const row=document.createElement("div");
+    row.className="code-line"; row.dataset.n=(idx+1);
+    row.innerHTML='<span class="ln">'+(idx+1)+'</span><span class="code">'+(highlight(line)||" ")+'</span>';
+    el.appendChild(row);
+  });
+}
+
+/* ════ the steps ════════════════════════════════════════════════════════
+   Extra fields beyond the template:
+     code      — the snippet to render in #code this step
+     caption   — small label above the code panel
+     hot       — line numbers to highlight (1-based)
+     add / del — line numbers to tint green (added) / red (removed)
+     arch      — ids in the arch strip to light (proc-web, proc-worker,
+                 store-pg, arr-web, arr-worker)
+     secHead   — heading for the secondary card
+   ════════════════════════════════════════════════════════════════════════ */
+const ARCH_IDS = ["proc-web","proc-worker","store-pg","arr-web","arr-worker"];
+
+const steps = [
+  {
+    title: "The fix, in one line",
+    arch: ["proc-web","proc-worker","store-pg","arr-web","arr-worker"],
+    caption: "the shape of the fix",
+    code:
+`// BEFORE — each process had its OWN array (private, in its own RAM):
+//   web:    const messages = []   ← GET reads this one
+//   worker: const messages = []   ← addMessage writes this one
+//   refresh → GET hits an array the reply never landed in → gone.
+
+// AFTER — delete both arrays. One Postgres both processes talk to:
+//   web    ──▶ Postgres ◀── worker
+//   GET and the worker's INSERT hit the SAME rows. Refresh survives.`,
+    hot: [6,7,8],
+    text: "You already know the bug: the web server and the worker are <b>separate OS processes</b>, " +
+          "each with its own <code>const messages = []</code> in its own memory. The worker writes the reply " +
+          "to <i>its</i> array; GET <code>/messages</code> reads the <i>web's</i> array; on refresh the reply is gone. " +
+          "The fix is one idea: <b>delete both arrays and point both processes at one Postgres</b>. " +
+          "Everything that follows is just the mechanics of doing that.",
+    secHead: "★ Note",
+    secondary: "We won't re-litigate the two-heaps problem — that's settled. From here on it's pure implementation: " +
+               "compose service, schema, pool, two store functions, and the await ripple."
+  },
+  {
+    title: "Add the postgres service to docker-compose",
+    arch: ["store-pg"],
+    caption: "docker-compose.yml — new service beside redis",
+    code:
+`services:
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+    volumes: [redis_data:/data]
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: gigachat
+      POSTGRES_PASSWORD: gigachat
+      POSTGRES_DB: gigachat
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  redis_data: { driver: local }
+  pgdata:     { driver: local }`,
+    hot: [6,7,8,9,10,11,12,13,14,15],
+    add: [6,7,8,9,10,11,12,13,14,15,18],
+    text: "Add a <code>postgres</code> service next to redis. <code>image: postgres:16</code> pulls the DB; " +
+          "the three <code>POSTGRES_*</code> env vars create a user, its password, and a database named " +
+          "<code>gigachat</code> on first boot. <code>ports: 5432:5432</code> exposes it to your host. " +
+          "<code>pgdata</code> is a <b>named volume</b> — Docker-managed disk so the data outlives the container. " +
+          "The second mount drops your schema file into a magic folder (next card).",
+    secHead: "★ In compose",
+    secondary: "<code>/docker-entrypoint-initdb.d</code> is a directory the official postgres image runs " +
+               "<b>once</b> — on first boot, while the data volume is still empty. Any <code>.sql</code> there " +
+               "is executed automatically. That's free schema bootstrap: no migration tool needed for giga8. " +
+               "Note: delete the <code>pgdata</code> volume to make it re-run."
+  },
+  {
+    title: "Write the schema in init.sql",
+    arch: ["store-pg"],
+    caption: "init.sql — runs once on first boot",
+    code:
+`CREATE TABLE messages (
+  id         uuid        PRIMARY KEY,
+  role       text        NOT NULL,
+  text       text        NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);`,
+    hot: [5],
+    add: [5],
+    text: "This mirrors your <code>Message</code> type: <code>id</code>, <code>role</code>, <code>text</code>. " +
+          "<code>uuid PRIMARY KEY</code> matches the <code>crypto.randomUUID()</code> you already generate. " +
+          "<code>timestamptz</code> is a timestamp <i>with time zone</i>, and <code>DEFAULT now()</code> means " +
+          "the DB stamps the insert time for you. That <code>created_at</code> column exists for one reason only — read the gotcha.",
+    secHead: "⚠ Gotcha",
+    secondary: "Your array gave you <b>insertion order for free</b> — <code>push</code> appends, you read it back top-to-bottom. " +
+               "A SQL table is an <b>unordered set</b>: rows come back in <i>no guaranteed order</i>. So you add " +
+               "<code>created_at</code> purely so you can <code>ORDER BY created_at</code> later and get messages back " +
+               "in the order they arrived. Skip it and the chat scrambles."
+  },
+  {
+    title: "Create the connection pool",
+    arch: ["proc-web","proc-worker","store-pg","arr-web","arr-worker"],
+    caption: "backend/src/db/pool.ts — mirrors queue/connection.ts",
+    code:
+`import { Pool } from "pg";
+
+export const pool = new Pool({
+  host:     process.env.PGHOST ?? "127.0.0.1",
+  port:     Number(process.env.PGPORT ?? 5432),
+  user:     process.env.PGUSER ?? "gigachat",
+  password: process.env.PGPASSWORD ?? "gigachat",
+  database: process.env.PGDATABASE ?? "gigachat",
+});`,
+    hot: [1,3,4,5,6,7,8,9],
+    add: [1,2,3,4,5,6,7,8,9],
+    text: "Same shape as <code>queue/connection.ts</code>: read config from env with fallbacks, export one object. " +
+          "A <b>Pool</b> is a managed set of reusable TCP connections to Postgres. Each query <i>borrows</i> a connection " +
+          "and <i>returns</i> it when done — so you don't pay to open and close a socket on every single query " +
+          "(that's the difference from a one-shot <code>Client</code>). " +
+          "Both web and worker each create their <i>own</i> Pool — totally fine: they're separate processes dialing the " +
+          "same server, exactly like each already makes its own redis connection.",
+    secHead: "★ In code",
+    secondary: "New dep: <code>npm i pg</code> and <code>npm i -D @types/pg</code>. " +
+               "Put this at <code>backend/src/db/pool.ts</code>. Import <code>pool</code> wherever you query — " +
+               "the store module is the only place that should."
+  },
+  {
+    title: "Rewrite addMessage — sync push → async INSERT",
+    tag: { kind: "good", label: "store" },
+    arch: ["store-pg"],
+    caption: "messages.store.ts — addMessage, before → after",
+    code:
+`// BEFORE
+export function addMessage(message: Message) {
+  messages.push(message);
+  return message;
+}
+
+// AFTER
+export async function addMessage(m: Message) {
+  await pool.query(
+    "INSERT INTO messages (id, role, text) VALUES ($1, $2, $3)",
+    [m.id, m.role, m.text],
+  );
+  return m;
+}`,
+    hot: [8,9,10,11,12,13,14],
+    del: [2,3,4],
+    add: [8,9,10,11,12,13,14],
+    text: "The push becomes an <code>INSERT</code>. <code>$1 $2 $3</code> are <b>placeholders</b> — you pass the real values " +
+          "as the array <code>[m.id, m.role, m.text]</code> and the <code>pg</code> driver substitutes them safely. " +
+          "This is a <b>parameterized query</b>: <b>never</b> string-concatenate user text into SQL " +
+          "(that's how SQL injection happens). The function is now <code>async</code> and returns a " +
+          "<code>Promise</code> — which forces every caller to change (step 7).",
+    secHead: "⚠ Gotcha",
+    secondary: "Tempting but wrong: <code>\"... VALUES ('\" + m.text + \"')\"</code>. A message of " +
+               "<code>'); DROP TABLE messages;--</code> would run. Placeholders send the text as <i>data</i>, " +
+               "never as SQL. Always parameterize."
+  },
+  {
+    title: "Rewrite getMessages — return array → SELECT … ORDER BY",
+    tag: { kind: "good", label: "store" },
+    arch: ["store-pg"],
+    caption: "messages.store.ts — getMessages, before → after",
+    code:
+`// BEFORE
+export function getMessages(): Message[] {
+  return messages;
+}
+
+// AFTER
+export async function getMessages(): Promise<Message[]> {
+  const result = await pool.query(
+    "SELECT id, role, text FROM messages ORDER BY created_at"
+  );
+  return result.rows;
+}`,
+    hot: [7,8,9,10,11,12],
+    del: [2,3,4],
+    add: [7,8,9,10,11,12],
+    text: "<code>return messages</code> becomes a <code>SELECT</code>. The <code>ORDER BY created_at</code> is the payoff " +
+          "from step 2: it re-imposes the arrival order a plain table doesn't keep. <code>pool.query</code> resolves to a " +
+          "result object; the rows you want are on <code>result.rows</code> — already an array of " +
+          "<code>{ id, role, text }</code>, matching your <code>Message[]</code> return type. " +
+          "Return type is now <code>Promise&lt;Message[]&gt;</code>.",
+    secHead: "★ In code",
+    secondary: "We select the three columns the frontend needs by name (not <code>SELECT *</code>) so the row shape " +
+               "matches <code>Message</code> exactly — <code>created_at</code> stays server-side, used only for ordering."
+  },
+  {
+    title: "The async ripple — every caller must await",
+    arch: ["proc-web","proc-worker"],
+    caption: "3 call sites must now await the store",
+    code:
+`// (a) GET handler — messages.routes.ts
+messagesRouter.get("/messages", async (_req, res) => {
+  const messages = await getMessages();
+  res.json(messages);
+});
+
+// (b) POST handler — messages.routes.ts
+const userMessage: Message = { id: crypto.randomUUID(), role: "user", text };
+await addMessage(userMessage);
+
+// (c) worker — worker.ts (callback was already async)
+await addMessage({ id, role: "assistant", text: reply });`,
+    hot: [2,3,9,12],
+    add: [2,3,9,12],
+    text: "This is the real lesson: making the store <code>async</code> <b>ripples out</b> to all three places that call it. " +
+          "(a) the GET handler becomes <code>async</code> and <code>await</code>s <code>getMessages()</code>; " +
+          "(b) the POST handler becomes <code>async</code> and <code>await</code>s <code>addMessage</code>; " +
+          "(c) the worker callback was <i>already</i> <code>async</code>, so you just add <code>await</code>. " +
+          "Each highlighted line is a place that breaks if you forget.",
+    secHead: "⚠ Why it matters",
+    secondary: "A forgotten <code>await</code> doesn't throw — <code>getMessages()</code> returns a <b>pending Promise</b>, " +
+               "and <code>res.json(promise)</code> serializes <code>{}</code> instead of your rows. " +
+               "Silent wrong-data bug. The async keyword on the store is your reminder to await everywhere."
+  },
+  {
+    title: "Order the POST deliberately — store, then respond",
+    tag: { kind: "bad", label: "ordering" },
+    arch: ["proc-web","store-pg","arr-web"],
+    caption: "messages.routes.ts — POST handler ordering",
+    code:
+`messagesRouter.post("/messages", async (req, res) => {
+  const { text } = req.body;
+  if (typeof text !== "string" || text.length === 0) {
+    res.status(400).json({ error: "Invalid message format" });
+    return;
+  }
+  const userMessage: Message = { id: crypto.randomUUID(), role: "user", text };
+  await addMessage(userMessage);          // 1. persist FIRST
+  const assistantId = crypto.randomUUID();
+  res.status(202).json({ id: assistantId }); // 2. THEN tell the client
+  enqueueReply(assistantId, text);        // 3. queue the reply
+});`,
+    hot: [8,10],
+    text: "With a synchronous push the order didn't matter. Now it does. <code>await addMessage(userMessage)</code> must come " +
+          "<b>before</b> <code>res.status(202)</code>. If you respond first and the insert then fails, you've already told the " +
+          "client <i>“stored, accepted”</i> — a lie. Persist, confirm it succeeded, <i>then</i> 202. " +
+          "<code>enqueueReply</code> stays after the response (it's fire-and-forget onto the queue).",
+    secHead: "⚠ Gotcha",
+    secondary: "<code>202 Accepted</code> is a promise to the client that the request was taken. Don't make that promise until " +
+               "the user message is actually in Postgres. If <code>addMessage</code> rejects, the <code>await</code> throws " +
+               "before the 202 and the client gets a 500 — honest."
+  },
+  {
+    title: "Run it & watch the bug die",
+    tag: { kind: "good", label: "verify" },
+    arch: ["proc-web","proc-worker","store-pg","arr-web","arr-worker"],
+    caption: "the acceptance test",
+    code:
+`# infra: now starts redis AND postgres (init.sql runs on first boot)
+docker compose up
+
+# backend: web + worker via concurrently
+cd backend && npm i pg && npm i -D @types/pg
+npm run dev
+
+# acceptance test
+#  1. send a message in the UI
+#  2. watch the echo stream in token by token
+#  3. REFRESH the page
+#  → the assistant reply is STILL THERE`,
+    hot: [11,12,13,14],
+    add: [11,12,13,14],
+    text: "<code>docker compose up</code> now brings up redis <i>and</i> postgres, and Postgres runs <code>init.sql</code> " +
+          "the first time (empty volume). <code>npm run dev</code> still launches web + worker via concurrently; the frontend " +
+          "runs separately as before. Send a message, watch it stream, then <b>refresh</b>. Before, the reply vanished. " +
+          "Now GET <code>/messages</code> reads from shared Postgres — not a per-process array — so the reply is still there.",
+    secHead: "★ Verify",
+    secondary: "If the reply still disappears: check the worker's <code>addMessage</code> actually <code>await</code>s, and that " +
+               "GET selects from the same DB. <code>docker exec -it &lt;pg&gt; psql -U gigachat -c " +
+               "'SELECT role, text FROM messages ORDER BY created_at'</code> to see the rows directly."
+  },
+  {
+    title: "Full circle",
+    arch: ["proc-web","proc-worker","store-pg","arr-web","arr-worker"],
+    caption: "what changed, end to end",
+    code:
+`Two processes  ──▶  one Postgres  ◀──  refresh survives
+
+ docker-compose   + postgres service + pgdata volume + init mount
+ init.sql         CREATE TABLE messages (… created_at for ORDER BY)
+ db/pool.ts       new Pool, env config, mirrors connection.ts
+ store.ts         push      → INSERT  (parameterized $1 $2 $3)
+                  return [] → SELECT … ORDER BY created_at → rows
+ callers (×3)     GET handler · POST handler · worker  — all await
+ ordering (×1)    await addMessage  BEFORE  res.status(202)`,
+    hot: [1],
+    text: "That's the whole change. Both processes now point at one Postgres, so a refresh survives. " +
+          "Going sync → async on the store was the domino: it rippled through exactly <b>three call sites</b> plus " +
+          "<b>one ordering decision</b>. The two-heaps problem is dead because there is now only one heap that matters — " +
+          "the database on disk.",
+    secHead: "★ Note",
+    secondary: "Next natural step (not giga8): wrap the user-insert + enqueue so a queue failure doesn't leave an orphaned " +
+               "message, and add an index on <code>created_at</code> once the table grows. Not needed to kill the refresh bug."
+  }
+];
+
+/* dynamic stage content — runs every step. Rebuilds the code panel,
+   sets the caption, lights arch nodes/arrows. Line highlighting is applied
+   here because lines are rebuilt each step. */
+function renderStage(step){
+  document.getElementById("code-caption").innerHTML =
+    step.caption ? "<b>// </b>" + step.caption : "";
+  buildCode(step.code || "");
+
+  const hot = new Set(step.hot || []);
+  const add = new Set(step.add || []);
+  const del = new Set(step.del || []);
+  document.querySelectorAll("#code .code-line").forEach(row => {
+    const n = Number(row.dataset.n);
+    const on = hot.has(n) || add.has(n) || del.has(n);
+    row.classList.toggle("hot", on);
+    row.classList.toggle("add", on && add.has(n));
+    row.classList.toggle("del", on && del.has(n));
+  });
+
+  const archOn = new Set(step.arch || []);
+  ARCH_IDS.forEach(id => {
+    document.getElementById(id).classList.toggle("hot", archOn.has(id));
+  });
+
+  document.getElementById("secondary-head").textContent = step.secHead || "★ Note";
+}
+
+/* ── stepper engine — unchanged from template ───────────────────────────── */
+let i = 0, playing = false, timer = null;
+const dotsWrap = document.getElementById("dots");
+document.getElementById("total").textContent = steps.length - 1;
+steps.forEach((_, idx) => {
+  const d = document.createElement("div");
+  d.className = "dot";
+  d.onclick = () => { stop(); go(idx); };
+  dotsWrap.appendChild(d);
+});
+
+function render(){
+  const s = steps[i];
+  document.getElementById("cur").textContent = i;
+
+  let titleHtml = s.title;
+  if (s.tag) titleHtml += '<span class="step-tag '+s.tag.kind+'">'+s.tag.label+'</span>';
+  document.getElementById("step-title").innerHTML = titleHtml;
+  document.getElementById("step-text").innerHTML = s.text;
+
+  const sec = document.getElementById("step-secondary");
+  sec.className = s.secondary ? "secondary-body" : "secondary-none";
+  sec.innerHTML = s.secondary || "Nothing extra on this step — keep going.";
+
+  renderStage(s);
+
+  dotsWrap.querySelectorAll(".dot").forEach((d, idx) => {
+    d.classList.toggle("active", idx === i);
+    d.classList.toggle("done", idx < i);
+  });
+  document.getElementById("prev").disabled = i === 0;
+  document.getElementById("next").disabled = i === steps.length - 1;
+}
+function go(n){ i = Math.max(0, Math.min(steps.length - 1, n)); render(); }
+function stop(){ playing = false; clearInterval(timer); document.getElementById("play").textContent = "▶ Play"; }
+
+document.getElementById("next").onclick = () => { stop(); go(i + 1); };
+document.getElementById("prev").onclick = () => { stop(); go(i - 1); };
+document.getElementById("play").onclick = () => {
+  if (playing) { stop(); return; }
+  if (i === steps.length - 1) go(0);
+  playing = true;
+  document.getElementById("play").textContent = "❚❚ Pause";
+  timer = setInterval(() => {
+    if (i === steps.length - 1) { stop(); return; }
+    go(i + 1);
+  }, 3200);
+};
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") { stop(); go(i + 1); }
+  if (e.key === "ArrowLeft")  { stop(); go(i - 1); }
+});
+
+render();
+</script>
+</body>
+</html>
