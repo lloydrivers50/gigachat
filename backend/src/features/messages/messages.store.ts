@@ -10,7 +10,7 @@ export async function addMessage(m: Message) {
 }
 export async function getMessages(): Promise<Message[]> {
   const result = await pool.query(
-    "SELECT id, role, text FROM messages ORDER BY created_at"
+    "SELECT id, role, text FROM messages ORDER BY created_at",
   );
   return result.rows;
 }

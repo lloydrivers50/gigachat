@@ -27,7 +27,7 @@ messagesRouter.post("/messages", async (req, res) => {
   const assistantId = crypto.randomUUID();
   res.status(202).json({ id: assistantId });
 
-  enqueueReply(assistantId, text);
+  enqueueReply(assistantId);
   log.info({ assistantId }, "reply enqueued");
 });
 
