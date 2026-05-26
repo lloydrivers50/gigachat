@@ -1,0 +1,36 @@
+sequenceDiagram
+    autonumber
+    participant B as Browser (React)
+    participant W as Web (Express)
+    participant DB as Postgres
+    participant R as Redis (queue + pub/sub)
+    participant WK as Worker
+
+    Note over B: EventSource already open on GET /messages/stream<br/>(mounted once when the app loads)
+
+    B->>B: setMessages #1 — optimistic user echo<br/>id = crypto.randomUUID()  (FE list key, NEVER sent)
+    B->>W: POST /messages { text }
+    W->>DB: addMessage(userMessage)<br/>id = crypto.randomUUID()  (DB user-row id — different, fine)
+    Note over W: const assistantId = crypto.randomUUID()<br/>*** the claim ticket is printed ***
+    W-->>B: 202 { id: assistantId }
+    Note over B: setMessages #2 — empty assistant bubble<br/>stamped { id: assistantId, streaming: true }<br/>setIsTyping(false) — typing-dots bridge handed off
+    W->>R: enqueueReply(assistantId) → add("reply", { id })
+
+    R->>WK: job.data = { id: assistantId }
+    WK->>DB: getMessages() → history
+    Note over WK: graph.stream(...) — LangGraph agent generates the reply
+
+    loop every token chunk
+        WK->>R: emitToken(assistantId, chunk)<br/>publish { type:"token", id, chunk }
+        R->>W: SSE subscriber receives (sub.on "message")
+        W-->>B: event: token  data { id: assistantId, chunk }
+        B->>B: msg.id === assistantId ? append chunk : leave
+    end
+
+    WK->>DB: addMessage({ id: assistantId, text: full })
+    WK->>R: emitDone(assistantId)  publish { type:"done", id }
+    R->>W: SSE subscriber receives
+    W-->>B: event: done  data { id: assistantId }
+    B->>B: msg.id === assistantId ? streaming: false : leave
+
+    Note over B,WK: One ticket (assistantId) rides every arrow after the 202.<br/>The two other ids never leave their box.

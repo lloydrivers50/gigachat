@@ -22,3 +22,6 @@ build/
 
 # Tickets are a local working artifact, not part of the published repo.
 tickets/
+
+# Throwaway SQL training sandbox — not part of the app.
+sql-sandbox/
