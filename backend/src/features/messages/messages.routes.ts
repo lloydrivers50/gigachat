@@ -21,7 +21,6 @@ messagesRouter.post("/messages", async (req, res) => {
     role: "user",
     text,
   };
-
   await addMessage(userMessage);
 
   const assistantId = crypto.randomUUID();

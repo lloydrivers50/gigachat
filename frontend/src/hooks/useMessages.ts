@@ -5,7 +5,6 @@ import { getMessages, postMessage } from "../features/chat/api";
 export function useMessages() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
-
   async function addMessage(text: string) {
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -21,8 +20,7 @@ export function useMessages() {
         ...prev,
         { id, role: "assistant", text: "", streaming: true },
       ]);
-      // Hand off: the streaming bubble now signals activity, so the pre-bubble
-      // typing indicator can go. From here `streaming` owns the live state.
+
       setIsTyping(false);
     } catch (error) {
       setIsTyping(false);
